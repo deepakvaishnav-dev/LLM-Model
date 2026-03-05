@@ -45,26 +45,20 @@ def chat_query(request: ChatRequest):
         
         max_retries = 3
         response = None
+        gemini_error = None
         for attempt in range(max_retries):
             try:
                 response = query_engine.query(request.query)
                 break
             except Exception as e:
                 err_str = str(e)
+                gemini_error = err_str
                 is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
 
                 if is_rate_limit:
-                    # If it's a DAILY quota — do NOT retry, surface it immediately
+                    # If it's a DAILY quota, we just break out of the retry loop and go to fallback immediately
                     if _is_daily_quota_exceeded(err_str):
-                        model = os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash")
-                        raise HTTPException(
-                            status_code=429,
-                            detail=(
-                                f"Your Google API free-tier daily quota for '{model}' is exhausted. "
-                                "Please wait until midnight (Pacific Time) for the quota to reset, "
-                                "or upgrade your Google AI plan at https://ai.google.dev/pricing."
-                            )
-                        )
+                        break
 
                     # Per-minute rate limit — retry with exponential back-off
                     if attempt < max_retries - 1:
@@ -72,11 +66,49 @@ def chat_query(request: ChatRequest):
                         print(f"Rate limit hit. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
                         continue
+                else:
+                    # Not a rate limit error, break and go to fallback
+                    break
 
-                raise e
-                
+        # Fallback to Ollama if Gemini failed
         if response is None:
-            raise Exception("Failed to get response from AI model after retries.")
+            print(f"Gemini API failed: {gemini_error}. Falling back to local Ollama model...")
+            try:
+                from llama_index.llms.ollama import Ollama
+                ollama_llm = Ollama(model="llama3.2", request_timeout=120.0)
+                
+                # Try Ollama WITH RAG first
+                try:
+                    fallback_query_engine = index.as_query_engine(
+                        similarity_top_k=3,
+                        llm=ollama_llm
+                    )
+                    response = fallback_query_engine.query(request.query)
+                    print("Successfully generated response using Ollama with RAG.")
+                except Exception as rag_err:
+                    print(f"Ollama with RAG failed (possibly due to embedding error): {rag_err}. Falling back to Ollama without RAG...")
+                    # Try Ollama WITHOUT RAG (Direct completion)
+                    ollama_response = ollama_llm.complete(request.query)
+                    
+                    # Create a mock response object that matches LlamaIndex's expected structure
+                    class MockNode:
+                        def __init__(self):
+                            self.metadata = {"file_name": "No Context (Fallback Mode)"}
+                            self.text = "The context could not be retrieved due to embedding API failure."
+                            self.score = 0.0
+                            
+                    class MockResponse:
+                        def __init__(self, text):
+                            self.source_nodes = [MockNode()]
+                            self.text = text
+                            
+                        def __str__(self):
+                            return self.text
+                            
+                    response = MockResponse(str(ollama_response))
+                    print("Successfully generated response using Ollama without RAG.")
+            except Exception as fallback_err:
+                raise Exception(f"Both Gemini and Ollama fallback failed. Gemini Error: {gemini_error}. Ollama Error: {fallback_err}")
             
         
         # Extract sources from the response
@@ -97,6 +129,12 @@ def chat_query(request: ChatRequest):
     except Exception as e:
         err_str = str(e)
         print(f"Chat error: {err_str}")
+        
+        if "Both Gemini and Ollama fallback failed" in err_str:
+            raise HTTPException(
+                status_code=500,
+                detail=f"AI processing failed. {err_str}"
+            )
         
         # Detect Gemini API quota / rate-limit errors
         if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:

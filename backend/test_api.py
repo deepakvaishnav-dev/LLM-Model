@@ -1,20 +1,16 @@
 import urllib.request
+import urllib.error
 import json
-import traceback
 
-req = urllib.request.Request(
-    'http://localhost:8000/api/chat/',
-    data=json.dumps({"query": "Explain how AI works in a few words"}).encode('utf-8'),
-    headers={'Content-Type': 'application/json'}
-)
+url = "http://127.0.0.1:8000/api/chat/"
+data = json.dumps({"query": "hello"}).encode('utf-8')
+req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
 
 try:
-    response = urllib.request.urlopen(req)
-    print("SUCCESS")
-    print(response.read().decode('utf-8'))
+    with urllib.request.urlopen(req) as resp:
+        print("Success:", resp.read().decode('utf-8'))
 except urllib.error.HTTPError as e:
-    print("HTTP ERROR:", e.code)
-    print(e.read().decode('utf-8'))
+    body = e.read().decode('utf-8')
+    print(f"HTTP {e.code}:\n{body}")
 except Exception as e:
-    print("OTHER ERROR:")
-    traceback.print_exc()
+    print(e)
