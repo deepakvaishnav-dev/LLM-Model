@@ -1,8 +1,15 @@
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException
 import shutil
 import os
+import re
 from app.services.parser import process_document
 from app.services.indexer import get_or_create_index
+
+def secure_filename(filename: str) -> str:
+    """Removes path traversal and non-alphanumeric/dot/underscore/dash chars"""
+    filename = os.path.basename(filename)
+    filename = re.sub(r'[^a-zA-Z0-9_\.-]', '_', filename)
+    return filename
 
 router = APIRouter()
 UPLOAD_DIR = "uploaded_files"
@@ -47,11 +54,15 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
     if file_extension not in allowed_extensions:
         raise HTTPException(status_code=400, detail="File type not supported. Please upload PDF, MD, TXT, or ZIP.")
 
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    safe_name = secure_filename(file.filename)
+    if not safe_name or safe_name.startswith('.'):
+        safe_name = "default_upload_" + safe_name
+        
+    file_path = os.path.join(UPLOAD_DIR, safe_name)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    processing_status[file.filename] = "pending"
-    background_tasks.add_task(parse_and_index, file_path, file.filename)
+    processing_status[safe_name] = "pending"
+    background_tasks.add_task(parse_and_index, file_path, safe_name)
 
-    return {"message": f"Successfully uploaded {file.filename}. Processing will begin shortly."}
+    return {"message": f"Successfully uploaded {safe_name}. Processing will begin shortly."}

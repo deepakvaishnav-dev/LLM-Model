@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from typing import List, Optional
 from app.services.indexer import get_or_create_index
 from llama_index.core import PromptTemplate
 from llama_index.core.prompts import PromptType
+import os
 import subprocess
 import time
-from app.core.config import settings
-from app.schemas.chat import ChatRequest
 
 # Strict PDF-only prompt - LLM sirf uploaded document se answer dega
 STRICT_PDF_PROMPT = PromptTemplate(
@@ -33,6 +33,17 @@ STRICT_PDF_PROMPT = PromptTemplate(
 
 router = APIRouter()
 
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    query: str
+    history: Optional[List[ChatMessage]] = []
+
+
 def _build_sources_from_response(response):
     source_nodes = getattr(response, "source_nodes", []) or []
     sources = []
@@ -51,7 +62,10 @@ def _build_sources_from_response(response):
 
 
 def _ollama_model_candidates() -> List[str]:
-    configured = settings.OLLAMA_FALLBACK_MODELS
+    configured = os.getenv(
+        "OLLAMA_FALLBACK_MODELS",
+        "llama3.2:1b,llama3.2:latest,llama3.2",
+    )
     configured_models = [m.strip() for m in configured.split(",") if m.strip()]
 
     installed_models = []
@@ -102,7 +116,7 @@ def _is_daily_quota_exceeded(err_str: str) -> bool:
 
 @router.post("/")
 def chat_query(request: ChatRequest):
-    google_key = settings.GOOGLE_API_KEY
+    google_key = os.getenv("GOOGLE_API_KEY")
 
     try:
         index = get_or_create_index()
@@ -220,17 +234,6 @@ def chat_query(request: ChatRequest):
         err_str = str(e)
         print(f"Chat error: {err_str}")
 
-        if "All AI providers failed" in err_str:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "AI processing failed. Gemini quota may be exhausted and local Ollama models could not run. "
-                    "Set OLLAMA_FALLBACK_MODELS to small installed models (for example: llama3.2:1b,phi3:mini), "
-                    "or upgrade Gemini quota. "
-                    f"Debug: {err_str}"
-                ),
-            )
-
         # Detect Gemini API quota / rate-limit errors
         if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
             raise HTTPException(
@@ -247,6 +250,17 @@ def chat_query(request: ChatRequest):
                 status_code=401,
                 detail="Invalid or missing Google API key. Please check your GOOGLE_API_KEY in the backend .env file.",
             )
+        elif "All AI providers failed" in err_str:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "AI processing failed. Gemini quota may be exhausted and local Ollama models could not run. "
+                    "Set OLLAMA_FALLBACK_MODELS to small installed models (for example: llama3.2:1b,phi3:mini), "
+                    "or upgrade Gemini quota. "
+                    f"Debug: {err_str}"
+                ),
+            )
+
         # Detect no documents indexed yet
         elif "empty" in err_str.lower() or "no documents" in err_str.lower():
             raise HTTPException(

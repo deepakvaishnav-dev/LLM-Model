@@ -33,7 +33,7 @@ export default function FileUploadArea() {
         setMessage(data.message);
       } else {
         setStatus("error");
-        setMessage(data.error || "Upload failed");
+        setMessage(data.detail || data.error || "Upload failed");
       }
     } catch (err) {
       console.error(err);
