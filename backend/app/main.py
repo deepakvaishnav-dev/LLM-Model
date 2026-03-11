@@ -3,23 +3,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import upload, chat
 from app.services.indexer import setup_rag_pipeline
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from app.core.config import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI Developer Knowledge Assistant API")
+app = FastAPI(title=settings.PROJECT_NAME)
 
 @app.on_event("startup")
+@app.on_event("startup")
 async def startup_event():
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if google_key:
+    if settings.GOOGLE_API_KEY:
         try:
-            setup_rag_pipeline(google_key)
+            setup_rag_pipeline(settings.GOOGLE_API_KEY)
             logger.info("Successfully initialized RAG pipeline with Google Gemini Key.")
         except Exception as e:
             logger.error(f"Failed to initialize RAG pipeline: {e}")
@@ -27,12 +24,9 @@ async def startup_event():
     else:
         logger.warning("WARNING: GOOGLE_API_KEY not found in environment.")
 
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
-allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",")] if allowed_origins_env else ["*"]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins, 
+    allow_origins=settings.ALLOWED_ORIGINS, 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

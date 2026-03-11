@@ -10,8 +10,8 @@ import os
 import time
 
 def setup_rag_pipeline(google_api_key: str):
-    # Read model name from env — defaults to gemini-1.5-flash (higher free-tier quota)
-    model_name = os.getenv("GEMINI_MODEL", "models/gemini-2.0-flash")
+    # Read model name from env; default to Gemini flash latest.
+    model_name = os.getenv("GEMINI_MODEL", "models/gemini-flash-latest")
 
     Settings.text_splitter = SentenceSplitter(chunk_size=4096, chunk_overlap=256)
     
