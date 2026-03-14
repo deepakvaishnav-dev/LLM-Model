@@ -16,7 +16,7 @@ STRICT_PDF_PROMPT = PromptTemplate(
     "1. You MUST only use information from the CONTEXT below to answer the question.\n"
     "2. Do NOT use any external knowledge, internet knowledge, or training data knowledge.\n"
     "3. If the answer is NOT found in the provided context, respond EXACTLY with:\n"
-    "   'Yeh information uploaded documents mein nahi mili. Please related document upload karein.'\n"
+    "   'This information was not found in the uploaded documents. Please upload the relevant document.'\n"
     "4. Never make up or guess information not present in the context.\n"
     "5. Always base your answer strictly on what is written in the context.\n"
     "\n"
